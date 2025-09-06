@@ -117,12 +117,23 @@ namespace Convolve
                 ImageLockMode.ReadOnly,
                 PixelFormat.Format32bppArgb);
 
+            //we're using 32bppArgb so there are 4 channels (B G R Alpha)
+            const int colorChannels = 4; 
+
+            //the color channels are arranged in the pixel array in this order B G R Alpha
+            const int blueOffset = 0;
+            const int greenOffset = 1;
+            const int redOffset = 2;
+            const int alphaOffset = 3;
+
             //array to hold bitmap pixel data.
             byte[] pixelBuffer = new byte[imgData.Stride * imgData.Height];
             byte[] resultPixelBuffer = new byte[imgData.Stride * imgData.Height];
 
-            //copy from memory to pixel array.
+            //copy from memory to a 1 dimentional pixel array.
+            //this means in an 8x8 image, for example, assuming only 1 color channel the second row first pixel is at index 8 (0 based index)
             Marshal.Copy(imgData.Scan0, pixelBuffer, 0, pixelBuffer.Length);
+
             //release bitmap data from memory.
             sourceBitmap.UnlockBits(imgData);
 
@@ -140,8 +151,7 @@ namespace Convolve
                     double blue = 0;
 
                     //this is the location of the byte we're currently computing the convolution for.
-                    //we multiply the x index by 4 since each pixel has 4 bytes for the 4 channels (rbga)
-                    var byteOffset = imgY * imgData.Stride + imgX * 4;
+                    var byteOffset = imgY * imgData.Stride + imgX * colorChannels;
 
                     //ignore kernel matrix values that lie outside the image.
                     //e.g. on the first row and column of pixels (imgY = 0, imgX = 0) ignore the the rows and columns of the kernel at the top and left of the center.
@@ -155,13 +165,37 @@ namespace Convolve
                     {
                         for (int kernelX = kernelXStart; kernelX <= kernelXLimit; kernelX++)
                         {
-                            //we start calculation from this position in the image pixel array.
-                            var calculationOffset = byteOffset + (kernelX * 4) + (kernelY * imgData.Stride);
+                            /*
+                             * we start calculation from this position in the image pixel array.
+                             * eg.
+                             * given an 8x8 image with a 3x3 kernel
+                             * assuming 1 pixel consumes only 1 array element (instead of 4 for each channel)
+                             * if we're on the second row (imgY = 1) and first column (imgX = 0) of the image
+                             * byteOffsest = 1 * 8 + 0 = 8
+                             * kernelY = -1, kernelYLimit = 1
+                             * kernelX = 0, kernelXlimit = 1
+                             * first iteration of this loop would be:
+                             * calculationOffset = 8 + (0 * 1) + (-1 * 8) = 0
+                             * we'll start computing for the pixel at index 0 of the pixel array
+                             * imagine superimposing the kernel matrix (3x3) over the image (8x8)
+                             * placing the center of the kernel (1,1) over the pixel at second row first column of the image (0,1)
+                             */
+                            var calculationOffset = byteOffset + (kernelX * colorChannels) + (kernelY * imgData.Stride);
 
-                            //the color channels are arranged in the pixel array in this order B G R Alpha
-                            blue += pixelBuffer[calculationOffset] * kernel[kernelY + radius, kernelX + radius];
-                            green += pixelBuffer[calculationOffset + 1] * kernel[kernelY + radius, kernelX + radius];
-                            red += pixelBuffer[calculationOffset + 2] * kernel[kernelY + radius, kernelX + radius];
+                            /*
+                             * now compute the convolution by multiplying each kernel value with the corresponding pixel value
+                             * e.g. at kernelY = -1, and kernelX = 0, we're at the top middle of a 3x3 kernel matrix
+                             * this translates to kernel[0, 1] (we add radius to both coordinates to convert from negative based index to 0 based index)
+                             * next would be:
+                             * kernelY = -1, and kernelX = 1 =>  kernel[0, 2]
+                             * kernelY = 0, and kernelX = 0 =>  kernel[1, 1]
+                             * kernelY = 0, and kernelX = 1 =>  kernel[1, 2]
+                             * kernelY = 1, and kernelX = 0 =>  kernel[2, 1]
+                             * kernelY = 1, and kernelX = 1 =>  kernel[2, 2]
+                             */
+                            blue += pixelBuffer[calculationOffset + blueOffset] * kernel[kernelY + radius, kernelX + radius];
+                            green += pixelBuffer[calculationOffset + greenOffset] * kernel[kernelY + radius, kernelX + radius];
+                            red += pixelBuffer[calculationOffset + redOffset] * kernel[kernelY + radius, kernelX + radius];
                         }
                     }
 
@@ -170,10 +204,10 @@ namespace Convolve
                     green = green > 255 ? 255 : (green < 0 ? 0 : green);
                     red = red > 255 ? 255 : (red < 0 ? 0 : red);
 
-                    resultPixelBuffer[byteOffset] = (byte)blue;
-                    resultPixelBuffer[byteOffset + 1] = (byte)green;
-                    resultPixelBuffer[byteOffset + 2] = (byte)red;
-                    resultPixelBuffer[byteOffset + 3] = 255; //this is for alpha
+                    resultPixelBuffer[byteOffset + blueOffset] = (byte)blue;
+                    resultPixelBuffer[byteOffset + greenOffset] = (byte)green;
+                    resultPixelBuffer[byteOffset + redOffset] = (byte)red;
+                    resultPixelBuffer[byteOffset + alphaOffset] = 255;
                 }
             }
 
